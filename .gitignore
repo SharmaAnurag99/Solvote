@@ -46,3 +46,5 @@ lerna-debug.log*
 **/*.pem
 
 .md
+# Ignore all markdown files
+*.md
