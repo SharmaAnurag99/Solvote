@@ -1,0 +1,58 @@
+{
+  "projectName": "ROFV (Resilient Offline-First Voting)",
+  "version": "0.1.0-mvp",
+  "description": "Offline cryptographic voting system with Durable Nonces and ZK-Privacy on Solana",
+  "network": "devnet",
+  "solanaCluster": "https://api.devnet.solana.com",
+  "modules": {
+    "module1": {
+      "name": "Admin Panel",
+      "status": "not-started",
+      "priority": "CRITICAL",
+      "estimatedDays": 3
+    },
+    "module2": {
+      "name": "Polling Booth",
+      "status": "not-started",
+      "priority": "CRITICAL",
+      "estimatedDays": 3
+    },
+    "module3": {
+      "name": "Offline Crypto & DTN",
+      "status": "not-started",
+      "priority": "CRITICAL",
+      "estimatedDays": 4
+    },
+    "module4": {
+      "name": "DTN Forwarding",
+      "status": "not-started",
+      "priority": "HIGH",
+      "estimatedDays": 3
+    },
+    "module5": {
+      "name": "Smart Contract",
+      "status": "not-started",
+      "priority": "CRITICAL",
+      "estimatedDays": 5
+    }
+  },
+  "techStack": {
+    "frontend": "React.js 18 + Vite",
+    "zkPrivacy": "circom + snarkjs",
+    "blockchain": "Solana + Anchor Framework",
+    "language": "JavaScript (frontend), Rust (contracts)",
+    "storage": "localStorage (MVP DTN)"
+  },
+  "candidates": {
+    "total": 3,
+    "list": [
+      { "id": 0, "name": "Candidate A" },
+      { "id": 1, "name": "Candidate B" },
+      { "id": 2, "name": "Candidate C" }
+    ]
+  },
+  "testData": {
+    "whitelist": ["123456", "987654", "112233"],
+    "adminWallet": "YOUR_ADMIN_PUBKEY"
+  }
+}

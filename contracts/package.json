@@ -1,0 +1,19 @@
+{
+  "name": "rofv-contracts",
+  "version": "0.1.0",
+  "description": "Solana contracts for ROFV voting system",
+  "main": "target/types/rofv_contract.ts",
+  "types": "target/types/rofv_contract.ts",
+  "scripts": {
+    "build": "anchor build",
+    "test": "anchor test",
+    "deploy": "anchor deploy"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.91.0",
+    "@coral-xyz/anchor": "^0.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}
