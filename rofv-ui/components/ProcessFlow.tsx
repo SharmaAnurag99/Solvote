@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle, Clock, AlertCircle, Loader } from "lucide-react";
+import { CheckCircle, AlertCircle, Loader } from "lucide-react";
 
 export interface ProcessStep {
   name: string;

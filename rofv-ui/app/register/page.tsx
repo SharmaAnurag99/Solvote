@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Mail, Phone, MapPin, User, FileText, Check, AlertCircle, ArrowLeft, Lock } from "lucide-react";
 import ProcessFlow, { ProcessStep } from "@/components/ProcessFlow";
@@ -271,7 +271,7 @@ export default function RegisterPage() {
                     value={formData.phone}
                     onChange={handleChange}
                     placeholder="10-digit number"
-                    maxLength="10"
+                    maxLength={10}
                     className="input-field"
                   />
                   {errors.phone && (
@@ -329,7 +329,7 @@ export default function RegisterPage() {
                   value={formData.aadhaar}
                   onChange={handleChange}
                   placeholder="xxxx xxxx xxxx"
-                  maxLength="12"
+                  maxLength={12}
                   className="input-field font-mono tracking-widest"
                 />
                 {errors.aadhaar && (
