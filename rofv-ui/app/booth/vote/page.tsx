@@ -115,6 +115,20 @@ export default function VotingScreen() {
       status: "pending",
     };
 
+    // FETCH IDENTITY DATA FOR NULLIFIER
+    const authData = JSON.parse(localStorage.getItem("verified_identity") || "{}");
+    const activeNullifier = authData.nullifier || "0xUNKNOWN";
+    
+    // PREVENT DOUBLE VOTING 
+    const usedNullifiers = JSON.parse(localStorage.getItem("used_nullifiers") || "[]");
+    if (!usedNullifiers.includes(activeNullifier) && activeNullifier !== "0xUNKNOWN") {
+      usedNullifiers.push(activeNullifier);
+      localStorage.setItem("used_nullifiers", JSON.stringify(usedNullifiers));
+    }
+    
+    // CLEAR IDENTITY SO THEY CANNOT GO BACK
+    localStorage.removeItem("verified_identity");
+
     // MOCK: Store in localStorage (simulating DTN outbox)
     const dtnOutbox = JSON.parse(localStorage.getItem("dtn_outbox") || "[]");
     dtnOutbox.push({
@@ -221,12 +235,11 @@ export default function VotingScreen() {
               </Link>
               <button
                 onClick={() => {
-                  setReceipt(null);
-                  setSelectedCandidate(null);
+                  window.location.href = "/booth/verify";
                 }}
                 className="flex-1 btn-secondary py-3"
               >
-                ← Vote Again
+                ← New Voter
               </button>
             </div>
           </div>
