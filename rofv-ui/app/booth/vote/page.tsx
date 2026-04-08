@@ -200,25 +200,28 @@ export default function VotingScreen() {
     steps[4].status = "processing";
     setProcessSteps([...steps]);
 
-    // 2. Build a raw structural Solana Transaction using the popped nonce
+    // 2. Create the booth signer FIRST (needed for signing and as feePayer)
+    const boothSigner = Keypair.generate();
+    
+    // 3. Build a raw structural Solana Transaction using the popped nonce
     const transaction = new Transaction();
     transaction.recentBlockhash = offlineNonce.nonceValue;
+    transaction.feePayer = boothSigner.publicKey;
     
     // Add placeholder for voting instruction (real contract will do merkle verification)
+    // Use the booth signer as the fromPubkey so signing is valid
     transaction.add(
       SystemProgram.transfer({
-        fromPubkey: Keypair.generate().publicKey, // booth authority
-        toPubkey: Keypair.generate().publicKey,   // election treasury
+        fromPubkey: boothSigner.publicKey,     // Must match signer
+        toPubkey: Keypair.generate().publicKey, // election treasury  
         lamports: 1000,
       })
     );
 
-    // 3. We sign the payload fully offline via a dummy local "Booth Keypair"
-    const boothSigner = Keypair.generate();
-    transaction.feePayer = boothSigner.publicKey;
+    // 4. Sign the transaction with the booth signer
     transaction.sign(boothSigner);
 
-    // 4. Serialize to Base64 to store safely offline without it expiring (DTN)
+    // 5. Serialize to Base64 to store safely offline without it expiring (DTN)
     const serializedTxBase64 = transaction.serialize().toString('base64');
     
     await new Promise((resolve) => setTimeout(resolve, 600));
