@@ -17,10 +17,36 @@ interface VoterRegistration {
   appliedAt: string;
 }
 
+interface WhitelistEntry {
+  id: string;
+  aadhaar: string;
+  fullName: string;
+  hasVoted: boolean;
+  votedAt: string | null;
+  votedCandidate: number | null;
+  registeredAt: string;
+}
+
 export default function AdminPanel() {
-  const [whitelist, setWhitelist] = useState<string[]>([
-    "111122223333",
-    "444455556666",
+  const [whitelist, setWhitelist] = useState<WhitelistEntry[]>([
+    {
+      id: "voter_001",
+      aadhaar: "111122223333",
+      fullName: "Voter XXX3333",
+      hasVoted: false,
+      votedAt: null,
+      votedCandidate: null,
+      registeredAt: new Date().toISOString()
+    },
+    {
+      id: "voter_002",
+      aadhaar: "444455556666",
+      fullName: "Voter XXX6666",
+      hasVoted: false,
+      votedAt: null,
+      votedCandidate: null,
+      registeredAt: new Date().toISOString()
+    }
   ]);
   const [registrations, setRegistrations] = useState<VoterRegistration[]>([]);
   const [aadhaarInput, setAadhaarInput] = useState("");
@@ -30,16 +56,65 @@ export default function AdminPanel() {
   const [success, setSuccess] = useState("");
   const [selectedReg, setSelectedReg] = useState<VoterRegistration | null>(null);
   const [activeTab, setActiveTab] = useState<"registrations" | "whitelist">("registrations");
+  const CANDIDATES = ["Candidate A", "Candidate B", "Candidate C"];
 
   useEffect(() => {
-    // MOCK: Load pending registrations from localStorage
+    // Load initial whitelist and registrations
     const stored = JSON.parse(localStorage.getItem("voter_registrations") || "[]");
     setRegistrations(stored);
+    
+    // Load whitelist with new structure
+    loadWhitelist();
+    
+    // Set up real-time listener for whitelist changes from ballot
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "whitelist") {
+        console.log("🔄 Admin: Detected whitelist change from voter booth");
+        loadWhitelist();
+      }
+    };
+    
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
+  
+  const loadWhitelist = () => {
+    const stored = JSON.parse(localStorage.getItem("whitelist") || "[]");
+    
+    // Handle migration from old format (string[]) to new format (WhitelistEntry[])
+    const migrated: WhitelistEntry[] = stored.map((item: any, idx: number) => {
+      if (typeof item === "string") {
+        return {
+          id: `voter_${idx + 1}`,
+          aadhaar: item,
+          fullName: `Voter ${item.slice(-4)}`,
+          hasVoted: false,
+          votedAt: null,
+          votedCandidate: null,
+          registeredAt: new Date().toISOString()
+        };
+      }
+      return item;
+    });
+    
+    setWhitelist(migrated);
+  };
 
   const handleApproveRegistration = (reg: VoterRegistration) => {
-    // Add to whitelist
-    setWhitelist([...whitelist, reg.aadhaar]);
+    // Add to whitelist as new WhitelistEntry
+    const newWhitelistEntry: WhitelistEntry = {
+      id: `voter_${reg.id}`,
+      aadhaar: reg.aadhaar,
+      fullName: reg.fullName,
+      hasVoted: false,
+      votedAt: null,
+      votedCandidate: null,
+      registeredAt: new Date().toISOString()
+    };
+    
+    const updatedWhitelist = [...whitelist, newWhitelistEntry];
+    setWhitelist(updatedWhitelist);
+    localStorage.setItem("whitelist", JSON.stringify(updatedWhitelist));
 
     // Update registration status
     const updated = registrations.map((r) =>
@@ -48,7 +123,7 @@ export default function AdminPanel() {
     setRegistrations(updated);
     localStorage.setItem("voter_registrations", JSON.stringify(updated));
 
-    setSuccess(`✓ Approved registration for ${reg.fullName}. Aadhaar added to whitelist.`);
+    setSuccess(`✓ Approved registration for ${reg.fullName}. Added to whitelist.`);
     setSelectedReg(null);
 
     setTimeout(() => setSuccess(""), 3000);
@@ -81,18 +156,32 @@ export default function AdminPanel() {
       return;
     }
 
-    if (whitelist.includes(aadhaarInput)) {
+    if (whitelist.some(v => v.aadhaar === aadhaarInput)) {
       setError("This Aadhaar is already in the whitelist.");
       return;
     }
 
-    setWhitelist([...whitelist, aadhaarInput]);
+    const newEntry: WhitelistEntry = {
+      id: `voter_${Math.random().toString(36).substr(2, 9)}`,
+      aadhaar: aadhaarInput,
+      fullName: `Voter ${aadhaarInput.slice(-4)}`,
+      hasVoted: false,
+      votedAt: null,
+      votedCandidate: null,
+      registeredAt: new Date().toISOString()
+    };
+
+    const updated = [...whitelist, newEntry];
+    setWhitelist(updated);
+    localStorage.setItem("whitelist", JSON.stringify(updated));
     setSuccess(`✓ Added ${aadhaarInput} to whitelist`);
     setAadhaarInput("");
   };
 
   const handleRemoveVoter = (aadhaar: string) => {
-    setWhitelist(whitelist.filter((a) => a !== aadhaar));
+    const updated = whitelist.filter((v) => v.aadhaar !== aadhaar);
+    setWhitelist(updated);
+    localStorage.setItem("whitelist", JSON.stringify(updated));
   };
 
   const handleGenerateMerkleRoot = async () => {
@@ -399,19 +488,54 @@ export default function AdminPanel() {
                 {whitelist.length === 0 ? (
                   <p className="text-gray-500 italic">No voters added yet</p>
                 ) : (
-                  <div className="space-y-2">
-                    {whitelist.map((aadhaar, idx) => (
+                  <div className="space-y-3">
+                    {whitelist.map((voter) => (
                       <div
-                        key={idx}
-                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200"
+                        key={voter.id}
+                        className={`flex items-center justify-between p-4 rounded-lg border-2 transition-colors ${
+                          voter.hasVoted
+                            ? "bg-green-50 border-green-200"
+                            : "bg-gray-50 border-gray-200"
+                        }`}
                       >
-                        <span className="font-mono font-semibold text-gray-900">
-                          {aadhaar}
-                        </span>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-3 mb-2">
+                            <span className="font-mono font-bold text-gray-900">
+                              {voter.aadhaar}
+                            </span>
+                            {voter.hasVoted ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-800 text-xs font-bold rounded-full">
+                                <Check className="w-3 h-3" /> VOTED
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded-full">
+                                ⏳ PENDING
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm text-gray-600 space-y-1">
+                            <p>
+                              <strong>Name:</strong> {voter.fullName}
+                            </p>
+                            {voter.hasVoted && voter.votedAt && (
+                              <>
+                                <p>
+                                  <strong>Voted:</strong> {new Date(voter.votedAt).toLocaleString()}
+                                </p>
+                                {voter.votedCandidate !== null && (
+                                  <p>
+                                    <strong>Candidate:</strong> {CANDIDATES[voter.votedCandidate] || "Unknown"}
+                                  </p>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
                         <button
-                          onClick={() => handleRemoveVoter(aadhaar)}
+                          onClick={() => handleRemoveVoter(voter.aadhaar)}
                           disabled={merkleRoot !== null}
                           className="text-red-600 hover:bg-red-50 p-2 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Remove voter from whitelist"
                         >
                           <Trash2 className="w-5 h-5" />
                         </button>
@@ -481,24 +605,73 @@ export default function AdminPanel() {
 
             {/* Sidebar Stats */}
             <div className="lg:col-span-1 space-y-6">
-              {/* Stats Card */}
-              <div className="card">
-                <h3 className="text-lg font-bold text-gray-900 mb-6">📊 Election Stats</h3>
+              {/* Turnout Metrics Card */}
+              <div className="card bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-300">
+                <h3 className="text-lg font-bold text-blue-900 mb-6">📊 Voter Turnout</h3>
                 <div className="space-y-4">
                   <div>
-                    <p className="text-gray-600 text-sm">Total Voters</p>
-                    <p className="text-3xl font-bold text-blue-600">{whitelist.length}</p>
+                    <div className="flex justify-between items-end mb-2">
+                      <p className="text-blue-700 text-sm font-semibold">Total Eligible Voters</p>
+                      <p className="text-2xl font-bold text-blue-600">{whitelist.length}</p>
+                    </div>
                   </div>
+                  
+                  <div className="border-t border-blue-200 pt-4">
+                    <div className="flex justify-between items-end mb-2">
+                      <p className="text-green-700 text-sm font-semibold">✅ Votes Cast</p>
+                      <p className="text-2xl font-bold text-green-600">
+                        {whitelist.filter(v => v.hasVoted).length}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-blue-200 pt-4">
+                    <div className="flex justify-between items-end mb-2">
+                      <p className="text-yellow-700 text-sm font-semibold">⏳ Pending Votes</p>
+                      <p className="text-2xl font-bold text-yellow-600">
+                        {whitelist.filter(v => !v.hasVoted).length}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-blue-200 pt-4">
+                    <p className="text-blue-700 text-sm font-semibold mb-2">Turnout Rate</p>
+                    <div className="w-full bg-blue-200 rounded-full h-4 overflow-hidden">
+                      <div
+                        className="bg-gradient-to-r from-green-500 to-green-600 h-full transition-all duration-500"
+                        style={{
+                          width: `${
+                            whitelist.length > 0
+                              ? ((whitelist.filter(v => v.hasVoted).length / whitelist.length) * 100).toFixed(1)
+                              : 0
+                          }%`
+                        }}
+                      />
+                    </div>
+                    <p className="text-center text-lg font-bold text-blue-900 mt-2">
+                      {whitelist.length > 0
+                        ? ((whitelist.filter(v => v.hasVoted).length / whitelist.length) * 100).toFixed(1)
+                        : 0}
+                      %
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Card */}
+              <div className="card">
+                <h3 className="text-lg font-bold text-gray-900 mb-6">🔐 Election Status</h3>
+                <div className="space-y-4">
                   <div>
-                    <p className="text-gray-600 text-sm">Status</p>
-                    <div className="flex gap-2 items-center mt-1">
+                    <p className="text-gray-600 text-sm mb-2">Merkle Root Status</p>
+                    <div className="flex gap-2 items-center">
                       <div
                         className={`w-3 h-3 rounded-full ${
                           merkleRoot ? "bg-green-600" : "bg-yellow-600"
                         }`}
                       ></div>
                       <span className="font-semibold">
-                        {merkleRoot ? "🔒 Locked" : "⚙️ Setup"}
+                        {merkleRoot ? "🔒 Locked & Published" : "⚙️ Setup Required"}
                       </span>
                     </div>
                   </div>
@@ -507,12 +680,12 @@ export default function AdminPanel() {
 
               {/* Alert Box */}
               <div className="card bg-blue-50 border border-blue-200">
-                <h3 className="font-bold text-blue-900 mb-3">🔐 Security Notes</h3>
+                <h3 className="font-bold text-blue-900 mb-3">🔐 Real-Time Tracking</h3>
                 <ul className="text-sm text-blue-800 space-y-2">
-                  <li>✓ Whitelist locked after root generation</li>
-                  <li>✓ Root published on Solana blockchain</li>
-                  <li>✓ Voters verified against this root</li>
-                  <li>✓ Cannot add voters after locking</li>
+                  <li>✓ Whitelist updates in real-time</li>
+                  <li>✓ Admin sees votes as cast</li>
+                  <li>✓ Turnout metrics live</li>
+                  <li>✓ Voter names & timestamps tracked</li>
                 </ul>
               </div>
 

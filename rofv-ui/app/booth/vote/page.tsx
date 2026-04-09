@@ -121,6 +121,62 @@ export default function VotingScreen() {
     }
     const authData = JSON.parse(authDataString);
     
+    // ============================================
+    // [CRITICAL STEP 2] MARK hasVoted = TRUE IMMEDIATELY
+    // This MUST happen BEFORE ZK proof generation
+    // So Admin can see voter status in real-time
+    // ============================================
+    try {
+      const whitelist = JSON.parse(localStorage.getItem("whitelist") || "[]");
+      const voterAadhaar = authData.aadhaar || authData.voterId;
+      
+      // Find voter in whitelist by aadhaar/voterId
+      let voterFound = false;
+      const updatedWhitelist = whitelist.map((voter: any) => {
+        if (voter.aadhaar === voterAadhaar || voter.id === voterAadhaar || voter === voterAadhaar) {
+          voterFound = true;
+          return typeof voter === 'string' 
+            ? {
+                id: `voter_${Math.random().toString(36).substr(2, 9)}`,
+                aadhaar: voter,
+                fullName: `Voter ${voter.slice(-4)}`,
+                hasVoted: true,
+                votedAt: new Date().toISOString(),
+                votedCandidate: selectedCandidate,
+                registeredAt: new Date().toISOString()
+              }
+            : {
+                ...voter,
+                hasVoted: true,
+                votedAt: new Date().toISOString(),
+                votedCandidate: selectedCandidate
+              };
+        }
+        return voter;
+      });
+      
+      // If voter not found in whitelist format, try to add as new entry
+      if (!voterFound && whitelist.length > 0) {
+        updatedWhitelist.push({
+          id: `voter_${Math.random().toString(36).substr(2, 9)}`,
+          aadhaar: voterAadhaar,
+          fullName: `Voter ${voterAadhaar.slice(-4)}`,
+          hasVoted: true,
+          votedAt: new Date().toISOString(),
+          votedCandidate: selectedCandidate,
+          registeredAt: new Date().toISOString()
+        });
+      }
+      
+      // Update whitelist in localStorage (triggers Admin Panel update)
+      localStorage.setItem("whitelist", JSON.stringify(updatedWhitelist));
+      console.log("✅ [CRITICAL] Marked hasVoted=true for voter:", voterAadhaar);
+      console.log("📊 Admin Panel will now show this voter as voted");
+    } catch (hasVotedError) {
+      console.warn("⚠️ hasVoted marking encountered issue:", hasVotedError);
+      // Continue anyway - voting should not fail just because admin tracking had issue
+    }
+    
     // Generate ZK proof of voter eligibility (WITHOUT revealing voterId or PIN)
     try {
       // Mock election data - in production comes from smart contract
