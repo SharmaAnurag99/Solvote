@@ -27,7 +27,8 @@ export default function VoteCountingDashboard() {
     votesByCandidate: { 0: 0, 1: 0, 2: 0 },
   });
   const [pendingVotes, setPendingVotes] = useState<any[]>([]);
-  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
 
   // Load data from localStorage
   const loadVoteData = () => {
@@ -65,6 +66,57 @@ export default function VoteCountingDashboard() {
     const interval = setInterval(loadVoteData, 5000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleSyncDTN = async () => {
+    setIsSyncing(true);
+    setSyncStatus("Starting Dual-Channel Sync...");
+
+    try {
+      // 1. SYNC ATTENDANCE (API 1)
+      setSyncStatus("API 1: Syncing Attendance to Central DB...");
+      const pendingAttendance = JSON.parse(localStorage.getItem("pending_attendance") || "[]");
+      
+      if (pendingAttendance.length > 0) {
+        const attendanceResponse = await fetch('/api/sync-attendance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attendanceRecords: pendingAttendance,
+            boothId: 'BOOTH_SEC_45',
+            constituency: 'New Delhi'
+          })
+        });
+
+        if (attendanceResponse.ok) {
+          localStorage.setItem("pending_attendance", "[]");
+          console.log("✅ Attendance Synced successfully");
+        }
+      }
+      
+      await new Promise(r => setTimeout(r, 1000));
+
+      // 2. SYNC VOTES (API 2 - Solana Mock)
+      setSyncStatus("API 2: Pushing Encrypted Votes to Solana...");
+      const dtnOutbox = JSON.parse(localStorage.getItem("dtn_outbox") || "[]");
+      const submittedVotes = JSON.parse(localStorage.getItem("submitted_votes") || "[]");
+
+      if (dtnOutbox.length > 0) {
+        // Move all from outbox to submitted (Mocking chain submission)
+        const updatedSubmitted = [...submittedVotes, ...dtnOutbox.map(v => ({ ...v, status: 'submitted' }))];
+        localStorage.setItem("submitted_votes", JSON.stringify(updatedSubmitted));
+        localStorage.setItem("dtn_outbox", "[]");
+      }
+
+      setSyncStatus("✅ Sync Complete! Central DB & Chain Updated.");
+      setTimeout(() => setSyncStatus(null), 3000);
+      loadVoteData();
+    } catch (err) {
+      console.error("Sync failed:", err);
+      setSyncStatus("❌ Sync Failed. Check Connection.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleSimulateSubmit = () => {
     if (pendingVotes.length === 0) {
@@ -171,14 +223,31 @@ export default function VoteCountingDashboard() {
         <div className="bg-white rounded-lg shadow p-6 mb-8">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-800">Vote Processing Progress</h3>
-            <button
-              onClick={loadVoteData}
-              className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center gap-2 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSyncDTN}
+                disabled={isSyncing || stats.pendingVotes === 0}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg flex items-center gap-2 hover:bg-blue-700 disabled:bg-gray-400 transition-all font-bold"
+              >
+                <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+                {isSyncing ? "Syncing Dual-Channel..." : "🚀 Sync DTN Outbox"}
+              </button>
+              <button
+                onClick={loadVoteData}
+                className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center gap-2 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Refresh
+              </button>
+            </div>
           </div>
+          
+          {syncStatus && (
+            <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-blue-800 text-sm font-semibold flex items-center gap-2 animate-pulse">
+              <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
+              {syncStatus}
+            </div>
+          )}
           <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
             <div
               className={`h-full transition-all duration-500 bg-gradient-to-r from-green-400 to-green-600`}

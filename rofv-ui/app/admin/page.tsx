@@ -100,6 +100,15 @@ export default function AdminPanel() {
     setWhitelist(migrated);
   };
 
+  const getTurnoutStats = () => {
+    const total = whitelist.length;
+    const voted = whitelist.filter(v => v.hasVoted).length;
+    const percentage = total > 0 ? ((voted / total) * 100).toFixed(1) : "0.0";
+    return { total, voted, percentage };
+  };
+
+  const stats = getTurnoutStats();
+
   const handleApproveRegistration = (reg: VoterRegistration) => {
     // Add to whitelist as new WhitelistEntry
     const newWhitelistEntry: WhitelistEntry = {
@@ -412,13 +421,12 @@ export default function AdminPanel() {
                     <span className="text-gray-600">Total Requests</span>
                     <span className="font-bold text-lg">{registrations.length}</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Pending</span>
-                    <span className="font-bold text-yellow-600">{pendingCount}</span>
+                  <div className="flex justify-between items-center border-t pt-2 mt-2">
+                    <span className="text-gray-600 text-sm">Voter Turnout (Live)</span>
+                    <span className="font-bold text-blue-600">{stats.voted} / {stats.total} ({stats.percentage}%)</span>
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600">Approved</span>
-                    <span className="font-bold text-green-600">{approvedCount}</span>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                    <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${stats.percentage}%` }}></div>
                   </div>
                 </div>
               </div>
