@@ -67,8 +67,23 @@ export default function VerifyIdentity() {
 
     const whitelist = JSON.parse(localStorage.getItem("whitelist") || "[]");
 
-    if (!whitelist.includes(aadhaar)) {
+    // Check against new whitelist structure
+    const voterIndex = whitelist.findIndex((v: any) => 
+      (typeof v === 'string' && v === aadhaar) || 
+      (v.aadhaar === aadhaar || v.id === aadhaar)
+    );
+
+    if (voterIndex === -1) {
       setError("❌ Identity not documented in authorized voter constituency. Please register or contact electoral officer.");
+      setAadhaar("");
+      setPin("");
+      setLoading(false);
+      return;
+    }
+
+    const voterData = whitelist[voterIndex];
+    if (voterData.hasVoted) {
+      setError("❌ ATTENDANCE MARKED: This voter has already signed in at the booth.");
       setAadhaar("");
       setPin("");
       setLoading(false);
@@ -118,6 +133,7 @@ export default function VerifyIdentity() {
     await new Promise((resolve) => setTimeout(resolve, 600));
     
     const mockIdentity = {
+      aadhaar: typeof whitelist[voterIndex] === 'string' ? aadhaar : whitelist[voterIndex].aadhaar,
       timestamp: Date.now(),
       zkProof: proof,
       nullifier: mockDeterministicNullifier,

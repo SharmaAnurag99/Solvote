@@ -296,6 +296,15 @@ export default function VotingScreen() {
     
     // CLEAR IDENTITY SO THEY CANNOT REVERSE THIS PAGE
     localStorage.removeItem("verified_identity");
+    
+    // OFFLINE ATTENDANCE LOG (For API 1 - Central Attendance Sync)
+    const pendingAttendance = JSON.parse(localStorage.getItem("pending_attendance") || "[]");
+    pendingAttendance.push({
+      voterId: authData.aadhaar || authData.voterId,
+      timestamp: new Date().toISOString(),
+      constituency: authData.constituency || "Unknown"
+    });
+    localStorage.setItem("pending_attendance", JSON.stringify(pendingAttendance));
 
     // STORE IN LOCAL STORAGE DTN QUEUE (To submit hours from now when online)
     const dtnOutbox = JSON.parse(localStorage.getItem("dtn_outbox") || "[]");

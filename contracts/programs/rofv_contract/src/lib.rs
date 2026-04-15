@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use std::collections::HashSet;
 
-declare_id!("5yfFTBCg2fWxF6vKTjKDJjUkXdPeZNCqHQ8A1Ke5Kqhd");
+declare_id!("G6LXK55Rh6kwy5nfDHMwBZhAgvP7jmpVg9Mt1a2VRSWh");
 
 #[program]
 pub mod rofv_contract {
