@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { BarChart3, Network, AlertCircle, CheckCircle, Clock, Home, RefreshCw } from "lucide-react";
+import { BarChart3, Network, AlertCircle, CheckCircle, Clock, Home, RefreshCw, PieChart as PieChartIcon } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 
 interface DashboardStats {
   totalVotes: number;
@@ -158,6 +159,19 @@ export default function VoteCountingDashboard() {
     return Math.round(((stats.confirmedVotes + stats.submittedVotes) / stats.totalVotes) * 100);
   };
 
+  // Data for Recharts
+  const barChartData = CANDIDATES.map(c => ({
+    name: c.name,
+    votes: stats.votesByCandidate[c.id] || 0,
+    fill: c.id === 0 ? "#2563eb" : c.id === 1 ? "#16a34a" : "#9333ea"
+  }));
+
+  const pieChartData = [
+    { name: "Pending (Offline)", value: stats.pendingVotes, color: "#eab308" },
+    { name: "Submitted", value: stats.submittedVotes, color: "#f97316" },
+    { name: "Confirmed", value: stats.confirmedVotes, color: "#22c55e" },
+  ].filter(d => d.value > 0);
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
       {/* Navigation */}
@@ -262,33 +276,52 @@ export default function VoteCountingDashboard() {
         </div>
 
         {/* Vote Distribution by Candidate */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          {/* Candidate Vote Counts */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+          {/* Advanced Analytics Table & Chart */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Votes by Candidate</h3>
-            <div className="space-y-4">
+            <div className="flex items-center gap-2 mb-6 border-b pb-4">
+              <BarChart3 className="w-5 h-5 text-gray-800" />
+              <h3 className="text-lg font-semibold text-gray-800">Advanced Vote Distribution</h3>
+            </div>
+            
+            <div className="h-64 mb-6">
+              {stats.totalVotes > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={barChartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="name" axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} axisLine={false} tickLine={false} />
+                    <Tooltip cursor={{ fill: 'transparent' }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    <Bar dataKey="votes" radius={[4, 4, 0, 0]} barSize={40}>
+                      {barChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-gray-400">
+                  No votes cast yet
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4 pt-4 border-t border-gray-100">
               {CANDIDATES.map((candidate) => {
                 const votes = stats.votesByCandidate[candidate.id] || 0;
-                const percentage =
-                  stats.totalVotes === 0 ? 0 : Math.round((votes / stats.totalVotes) * 100);
+                const percentage = stats.totalVotes === 0 ? 0 : Math.round((votes / stats.totalVotes) * 100);
 
                 return (
                   <div key={candidate.id}>
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-3">
-                        <div className={`w-4 h-4 rounded-full ${candidate.color}`} />
-                        <span className="font-medium text-gray-700">{candidate.name}</span>
+                        <div className={`w-3 h-3 rounded-full ${candidate.color}`} />
+                        <span className="font-medium text-gray-700 text-sm">{candidate.name}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className={`text-lg font-bold ${candidate.textColor}`}>{votes}</span>
-                        <span className="text-gray-500 text-sm">{percentage}%</span>
+                        <span className={`text-sm font-bold ${candidate.textColor}`}>{votes}</span>
+                        <span className="text-gray-500 text-xs">({percentage}%)</span>
                       </div>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className={`h-full rounded-full transition-all ${candidate.color}`}
-                        style={{ width: `${percentage}%` }}
-                      />
                     </div>
                   </div>
                 );
@@ -296,39 +329,71 @@ export default function VoteCountingDashboard() {
             </div>
           </div>
 
-          {/* Vote Status Distribution */}
+          {/* Vote Status Distribution Pie Chart */}
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold text-gray-800 mb-4">Processing Status</h3>
-            <div className="space-y-4">
-              {[
-                { label: "Pending (Offline)", value: stats.pendingVotes, color: "bg-yellow-500", icon: Clock },
-                { label: "Submitted", value: stats.submittedVotes, color: "bg-orange-500", icon: Network },
-                { label: "Confirmed", value: stats.confirmedVotes, color: "bg-green-500", icon: CheckCircle },
-              ].map((status, idx) => {
-                const Icon = status.icon;
-                const percentage = stats.totalVotes === 0 ? 0 : Math.round((status.value / stats.totalVotes) * 100);
-
-                return (
-                  <div key={idx}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <Icon className="w-5 h-5" style={{ color: status.color.replace("bg-", "text-") }} />
-                        <span className="font-medium text-gray-700">{status.label}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg font-bold text-gray-800">{status.value}</span>
-                        <span className="text-gray-500 text-sm">{percentage}%</span>
-                      </div>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className={`h-full rounded-full transition-all ${status.color}`}
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
+            <div className="flex items-center gap-2 mb-6 border-b pb-4">
+              <PieChartIcon className="w-5 h-5 text-gray-800" />
+              <h3 className="text-lg font-semibold text-gray-800">Processing Status Breakdown</h3>
+            </div>
+            
+            <div className="flex flex-col md:flex-row items-center justify-center gap-8 h-64 mb-6">
+              <div className="w-1/2 h-full min-h-[16rem]">
+                {stats.totalVotes > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={pieChartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={80}
+                        paddingAngle={5}
+                        dataKey="value"
+                      >
+                        {pieChartData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                   <div className="h-full flex items-center justify-center text-gray-400">
+                    No status data
                   </div>
-                );
-              })}
+                )}
+              </div>
+              
+              <div className="w-1/2 space-y-5">
+                {[
+                  { label: "Pending (Offline)", value: stats.pendingVotes, color: "bg-yellow-500", icon: Clock },
+                  { label: "Submitted", value: stats.submittedVotes, color: "bg-orange-500", icon: Network },
+                  { label: "Confirmed", value: stats.confirmedVotes, color: "bg-green-500", icon: CheckCircle },
+                ].map((status, idx) => {
+                  const Icon = status.icon;
+                  const percentage = stats.totalVotes === 0 ? 0 : Math.round((status.value / stats.totalVotes) * 100);
+
+                  return (
+                    <div key={idx}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-3">
+                          <Icon className="w-4 h-4" style={{ color: status.color.replace("bg-", "text-") }} />
+                          <span className="font-medium text-gray-700 text-sm">{status.label}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-gray-800">{status.value}</span>
+                        </div>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-1.5 mt-1">
+                        <div
+                          className={`h-full rounded-full transition-all ${status.color}`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>

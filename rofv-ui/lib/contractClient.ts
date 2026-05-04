@@ -1,450 +1,271 @@
-import { 
-  Program, 
-  AnchorProvider, 
-  web3, 
-  BN 
-} from "@coral-xyz/anchor";
-import { 
-  PublicKey, 
-  Connection, 
-  clusterApiUrl, 
-  Keypair,
-  TransactionSignature
-} from "@solana/web3.js";
-import type { RofvContract } from "@/lib/types/rofv_contract";
-import { FEATURES, debugLog } from "@/lib/constants";
+// Updated contractClient.ts with M3 (Offline Nonce) + M5 (Anchor) Integration
+import { Connection, PublicKey, Transaction, SystemProgram, Keypair, SendTransactionError } from '@solana/web3.js';
+import * as anchor from '@project-serum/anchor';
+import { Program, Provider } from '@project-serum/anchor';
 
-/**
- * ROFV Contract Client
- * 
- * This class provides a TypeScript interface to interact with the
- * BlockVote smart contract deployed on Solana.
- * 
- * Supports TWO MODES:
- *   1. **MOCK MODE** (NEXT_PUBLIC_USE_MOCK_PROOFS=true)
- *      - Returns simulated responses for testing
- *      - No blockchain required
- *      - Perfect for frontend development
- * 
- *   2. **REAL MODE** (NEXT_PUBLIC_USE_MOCK_PROOFS=false)
- *      - Connects to actual Solana blockchain
- *      - Requires wallet + network
- *      - Full contract execution
- * 
- * Usage:
- *   const client = new RofvContractClient(wallet);
- *   const electionKey = await client.initializeElection(...);
- *   await client.castVote(...);
- * 
- * Configuration:
- *   .env.local:
- *     NEXT_PUBLIC_USE_MOCK_PROOFS=true    # For development
- *     NEXT_PUBLIC_TEST_MODE=true           # Enable debug logs
- */
+// Setup Mock Environment variables
+const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK_PROOFS === 'true';
 
-export class RofvContractClient {
-  private program: Program<RofvContract> | null = null;
-  private connection: Connection;
-  private wallet: any;
-  private isMockMode: boolean;
-
-  constructor(
-    wallet: any,
-    programId: PublicKey = new PublicKey("5yfFTBCg2fWxF6vKTjKDJjUkXdPeZNCqHQ8A1Ke5Kqhd"),
-    cluster: "devnet" | "mainnet-beta" | "localnet" = "devnet"
-  ) {
-    this.wallet = wallet;
-    this.isMockMode = FEATURES.USE_MOCK_PROOFS;
-    this.connection = new Connection(clusterApiUrl(cluster as any));
-    
-    if (this.isMockMode) {
-      debugLog("CONTRACT", "✓ Mock Mode Enabled - No blockchain connectivity required");
-      this.program = null; // Not needed in mock mode
-    } else {
-      // Real mode: Initialize Anchor Program
-      // Note: IDL import would come from the generated IDL
-      // For now, we'll use a placeholder type
-      const provider = new AnchorProvider(this.connection, wallet, {
-        preflightCommitment: "processed",
-      });
-
-      // This would be the actual program initialization
-      // We'll need the IDL JSON from contract compilation
-      // this.program = new Program<RofvContract>(IDL, programId, provider);
-      debugLog("CONTRACT", "✓ Real Mode - Connecting to blockchain at cluster: " + cluster);
+// In a real environment, you would import the compiled IDL JSON here
+// import idl from './rofv_contract.json';
+const idl = {
+  version: "0.1.0",
+  name: "rofv_contract",
+  instructions: [
+    {
+      name: "initializeElection",
+      accounts: [
+        { name: "electionState", isMut: true, isSigner: false },
+        { name: "authority", isMut: true, isSigner: true },
+        { name: "systemProgram", isMut: false, isSigner: false }
+      ],
+      args: [
+        { name: "merkleRoot", type: { "array": ["u8", 32] } },
+        { name: "totalCandidates", type: "u8" },
+        { name: "totalEligibleVoters", type: "u32" }
+      ]
+    },
+    {
+      name: "castVote",
+      accounts: [
+        { name: "electionState", isMut: true, isSigner: false },
+        { name: "voteRecord", isMut: true, isSigner: false },
+        { name: "signer", isMut: true, isSigner: true },
+        { name: "systemProgram", isMut: false, isSigner: false }
+      ],
+      args: [
+        { name: "candidateId", type: "u8" },
+        { name: "nullifierHash", type: "bytes" },
+        { name: "merkleProof", type: { "vec": { "array": ["u8", 32] } } },
+        { name: "zkProof", type: "bytes" }
+      ]
+    },
+    {
+      name: "getVoteTally",
+      accounts: [
+        { name: "electionState", isMut: false, isSigner: false }
+      ],
+      args: []
     }
-  }
-
-  /**
-   * Initialize a new election on the blockchain
-   * 
-   * Parameters:
-   *   - merkleRoot: The cryptographic root of eligible voters
-   *   - totalCandidates: Number of voting choices (typically 3)
-   *   - totalEligibleVoters: Expected participation count
-   * 
-   * Returns: PublicKey of the created ElectionState account
-   * 
-   * Example:
-   *   const electionKey = await client.initializeElection(
-   *     mockRoot,      // 32-byte array
-   *     3,             // 3 candidates
-   *     100            // 100 eligible voters
-   *   );
-   */
-  async initializeElection(
-    merkleRoot: number[],
-    totalCandidates: number,
-    totalEligibleVoters: number
-  ): Promise<PublicKey> {
-    try {
-      debugLog("CONTRACT", "Initializing election...");
-      console.log(`  Total Candidates: ${totalCandidates}`);
-      console.log(`  Total Eligible Voters: ${totalEligibleVoters}`);
-
-      // Create a new keypair for the election state account
-      const electionState = web3.Keypair.generate();
-
-      if (this.isMockMode) {
-        // MOCK MODE: Simulate blockchain delay and return success
-        debugLog("CONTRACT", "[MOCK] Simulating election initialization (1s delay)...");
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        debugLog("CONTRACT", "✅ [MOCK] Election initialized successfully");
-        return electionState.publicKey;
+  ],
+  accounts: [
+    {
+      name: "ElectionState",
+      type: {
+        kind: "struct",
+        fields: [
+          { name: "authority", type: "publicKey" },
+          { name: "merkleRoot", type: { "array": ["u8", 32] } },
+          { name: "totalCandidates", type: "u8" },
+          { name: "totalEligibleVoters", type: "u32" },
+          { name: "isActive", type: "bool" },
+          { name: "voteCounts", type: { "vec": "u32" } }
+        ]
       }
+    }
+  ]
+};
 
-      // REAL MODE: Call the actual smart contract method
-      // await this.program!.methods
-      //   .initializeElection(
-      //     merkleRoot,
-      //     totalCandidates,
-      //     totalEligibleVoters
-      //   )
-      //   .accounts({
-      //     electionState: electionState.publicKey,
-      //     authority: this.wallet.publicKey,
-      //     systemProgram: web3.SystemProgram.programId,
-      //   })
-      //   .signers([electionState])
-      //   .rpc();
+// You need the real Program ID from deploying 'anchor deploy'
+const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID || 'G6LXK55Rh6kwy5nfDHMwBZhAgvP7jmpVg9Mt1a2VRSWh');
 
-      console.log("✅ Election initialized on blockchain");
-      console.log(`   Election State: ${electionState.publicKey.toBase58()}`);
+export class ContractClient {
+  private connection: Connection;
+  private provider: Provider | null = null;
+  private program: any; // Would be Program type with real IDL typing
 
-      return electionState.publicKey;
-    } catch (error: any) {
-      console.error("❌ Failed to initialize election:", error);
-      throw new Error(`Election initialization failed: ${error.message}`);
+  constructor(rpcUrl: string = 'http://localhost:8899') {
+    this.connection = new Connection(rpcUrl, 'confirmed');
+
+    if (!USE_MOCK && typeof window !== 'undefined' && (window as any).solana) {
+      // Setup Anchor Provider
+      this.provider = new anchor.AnchorProvider(this.connection, (window as any).solana as anchor.Wallet, {
+        preflightCommitment: 'confirmed'
+      });
+      // Initialize the Anchor Program
+      this.program = new anchor.Program(idl as any, PROGRAM_ID, this.provider);
+    }
+  }
+
+  // Helper to derive Election PDA
+  async getElectionStatePda(): Promise<[PublicKey, number]> {
+      return PublicKey.findProgramAddressSync(
+          [Buffer.from("election_state")],
+          PROGRAM_ID
+      );
+  }
+
+  // 1. Module 5 (Smart Contract) Initialization 
+  async initializeElection(merkleRoot: string, candidatesCount: number, eligibleCount: number): Promise<string> {
+    if (USE_MOCK) {
+      console.log('MOCK: initializeElection', { merkleRoot, candidatesCount });
+      return Promise.resolve('mock_init_tx_signature');
+    }
+
+    try {
+        if (!this.program) throw new Error("Wallet not connected for real transaction.");
+        const [electionStatePda] = await this.getElectionStatePda();
+        const rootBuffer = Buffer.from(merkleRoot || '0', 'hex').slice(0, 32); 
+
+        // Call the Anchor Instruction
+        const txHash = await this.program.methods.initializeElection(
+            Array.from(rootBuffer),
+            candidatesCount,
+            eligibleCount
+        ).accounts({
+            electionState: electionStatePda,
+            authority: this.provider?.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+        }).rpc();
+        
+        return txHash;
+    } catch (e: any) {
+        console.error("M5 initializeElection failed", e);
+        throw e;
     }
   }
 
   /**
-   * Cast a Vote on the blockchain with cryptographic proof
-   * 
-   * Parameters:
-   *   - candidateId: Index of chosen candidate (0-indexed)
-   *   - nullifierHash: 32-byte hash to prevent double-voting
-   *   - merkleProof: Array of 32-byte merkle tree nodes
-   *   - zkProof: Zero-knowledge proof of voter eligibility
-   * 
-   * Returns: Transaction signature on blockchain
-   * 
-   * Example:
-   *   const txHash = await client.castVote(
-   *     0,                          // Vote for Candidate A
-   *     nullifier,                  // 32-byte array
-   *     merkleProofArray,           // Array of 32-byte arrays
-   *     zkProofArray                // ZK proof bytes
-   *   );
+   * Module 3 (Nonces) + Module 5 (Smart Contract) Integration!
+   * This generated transaction includes:
+   * 1. SystemProgram.nonceAdvance
+   * 2. Program.methods.castVote()
    */
   async castVote(
-    candidateId: number,
-    nullifierHash: string | number[],
-    merkleProof: string[] | number[][],
-    zkProof: any
-  ): Promise<TransactionSignature> {
-    try {
-      debugLog("CONTRACT", "Casting vote...");
-      console.log(`  Candidate ID: ${candidateId}`);
+    candidateId: number, 
+    nullifierHash: string, 
+    zkProof: string, 
+    merkleProof: string[],
+    nonceAccountPubkeyStr: string, // Module 3 Durable Nonce Input!
+    nonceAuthorityPubkeyStr: string
+  ): Promise<{ transactionBytesBase64: string }> {
+      
+      const nonceAccountPubkey = new PublicKey(nonceAccountPubkeyStr);
+      const nonceAuthorityPubkey = new PublicKey(nonceAuthorityPubkeyStr);
 
-      if (this.isMockMode) {
-        // MOCK MODE: Simulate blockchain delay and return success
-        debugLog("CONTRACT", "[MOCK] Simulating vote submission (1.5s delay)...");
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        const mockTxHash = "mock_" + Math.random().toString(36).substr(2, 20).toUpperCase();
-        debugLog("CONTRACT", `✅ [MOCK] Vote recorded successfully`);
-        debugLog("CONTRACT", `   Transaction: ${mockTxHash}`);
-        
-        return mockTxHash as TransactionSignature;
+      if (USE_MOCK) {
+        console.log('MOCK: Building castVote M3+M5 tx...', { candidateId, nullifierHash });
+        // Simulating the base64 compiled payload for the DTN
+        return { transactionBytesBase64: Buffer.from(`mock_m3_m5_tx_${Date.now()}`).toString('base64') };
       }
 
-      // REAL MODE: Call the actual smart contract method
-      // const voteRecord = web3.Keypair.generate();
-      // 
-      // const txHash = await this.program!.methods
-      //   .castVote(
-      //     candidateId,
-      //     nullifierHash as any,
-      //     merkleProof as any,
-      //     zkProof
-      //   )
-      //   .accounts({
-      //     electionState: electionStateKey,
-      //     voteRecord: voteRecord.publicKey,
-      //     signer: this.wallet.publicKey,
-      //     systemProgram: web3.SystemProgram.programId,
-      //   })
-      //   .signers([voteRecord])
-      //   .rpc();
-      //
-      // return txHash as TransactionSignature;
+      if (!this.program) throw new Error("Wallet provider required.");
 
-      throw new Error("Real mode not configured - please set NEXT_PUBLIC_USE_MOCK_PROOFS=true");
-    } catch (error: any) {
-      console.error("❌ Failed to cast vote:", error);
-      throw new Error(`Vote casting failed: ${error.message}`);
-    }
+      const [electionStatePda] = await this.getElectionStatePda();
+      
+      // Calculate a specific vote record PDA using the nullifier
+      const [voteRecordPda] = PublicKey.findProgramAddressSync(
+          [Buffer.from("vote"), Buffer.from(nullifierHash, 'hex').slice(0, 32)],
+          PROGRAM_ID
+      );
+
+      // Create the overall transaction
+      let transaction = new Transaction();
+
+      // INSTRUCTION 1: Advance the Durable Nonce (Module 3 requirement for offline!)
+      const advanceNonceIx = SystemProgram.nonceAdvance({
+          noncePubkey: nonceAccountPubkey,
+          authorizedPubkey: nonceAuthorityPubkey
+      });
+      transaction.add(advanceNonceIx);
+
+      // INSTRUCTION 2: Call the Anchor Smart Contract (Module 5)
+      const castVoteIx = await this.program.methods.castVote(
+          candidateId,
+          Buffer.from(nullifierHash, 'hex'),
+          merkleProof.map(p => Array.from(Buffer.from(p, 'hex').slice(0, 32))),
+          Buffer.from(zkProof, 'hex')
+      ).accounts({
+          electionState: electionStatePda,
+          voteRecord: voteRecordPda,
+          signer: nonceAuthorityPubkey, // The kiosk hardware key
+          systemProgram: SystemProgram.programId,
+      }).instruction();
+
+      transaction.add(castVoteIx);
+
+      // IMPORTANT: Since we are offline, we must lock the blockhash to the Durable Nonce!
+      const nonceAccountInfo = await this.connection.getNonce(nonceAccountPubkey);
+      if (!nonceAccountInfo) throw new Error("Nonce account not found on chain (needs to be online to fetch initially)");
+      
+      transaction.recentBlockhash = nonceAccountInfo.nonce;
+      transaction.feePayer = nonceAuthorityPubkey;
+
+      // Note: In real offline mode, the frontend would prompt the hardware wallet/booth key to PartialSign here.
+      // We return the raw transactional bytes.
+      const rawTx = transaction.serialize({ requireAllSignatures: false });
+      
+      return { transactionBytesBase64: rawTx.toString('base64') };
   }
 
-  /**
-   * Retrieve the current vote tally from the blockchain
-   * 
-   * Parameters:
-   *   - electionStateKey: PublicKey of the election
-   * 
-   * Returns: Array of vote counts for each candidate
-   *   Example: [45, 32, 23] means 45 votes for A, 32 for B, 23 for C
-   * 
-   * Example:
-   *   const tally = await client.getVoteTally(electionKey);
-   *   console.log(`Candidate A: ${tally[0]} votes`);
-   */
-  async getVoteTally(electionStateKey?: PublicKey): Promise<number[]> {
-    try {
-      debugLog("CONTRACT", "Fetching vote tally...");
-
-      if (this.isMockMode) {
-        // MOCK MODE: Return realistic election data
-        debugLog("CONTRACT", "[MOCK] Simulating blockchain query (500ms delay)...");
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        // Generate realistic mock tally
-        const mockTally = [23, 18, 12];
-        
-        debugLog("CONTRACT", `✅ [MOCK] Vote tally retrieved`);
-        mockTally.forEach((count, idx) => {
-          console.log(`     Candidate ${idx}: ${count} votes`);
-        });
-        
-        return mockTally;
+  // Module 5 Admin Sync: Takes raw bytes from DTN Outbox and blasts to chain.
+  async submitRawTransaction(transactionBytesBase64: string): Promise<string> {
+      if (USE_MOCK) {
+          console.log('MOCK: Submitting RAW transaction bytes to chain...');
+          return `mock_tx_${Math.random()}`;
       }
 
-      // REAL MODE: Call the actual smart contract view function
-      // const tally = await this.program!.methods
-      //   .getVoteTally()
-      //   .accounts({
-      //     electionState: electionStateKey,
-      //   })
-      //   .view();
-      //
-      // return tally as number[];
+      const txBytes = Buffer.from(transactionBytesBase64, 'base64');
+      const tx = Transaction.from(txBytes);
 
-      throw new Error("Real mode not configured - please set NEXT_PUBLIC_USE_MOCK_PROOFS=true");
-    } catch (error: any) {
-      console.error("❌ Failed to fetch tally:", error);
-      throw new Error(`Failed to get vote tally: ${error.message}`);
-    }
-  }
-
-  /**
-   * Finalize the election and lock results
-   * 
-   * Parameters:
-   *   - electionStateKey: PublicKey of the election
-   * 
-   * Returns: TransactionSignature
-   * 
-   * Note: Only the election authority can call this
-   * 
-   * Example:
-   *   await client.finalizeElection(electionKey);
-   *   // Results are now permanently locked on-chain
-   */
-  async finalizeElection(electionStateKey?: PublicKey): Promise<TransactionSignature> {
-    try {
-      debugLog("CONTRACT", "Finalizing election...");
-
-      if (this.isMockMode) {
-        // MOCK MODE: Simulate finalization
-        debugLog("CONTRACT", "[MOCK] Simulating election finalization (500ms delay)...");
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        const mockTxHash = "mock_" + Math.random().toString(36).substr(2, 20).toUpperCase();
-        debugLog("CONTRACT", `✅ [MOCK] Election finalized successfully`);
-        debugLog("CONTRACT", `   Transaction: ${mockTxHash}`);
-        
-        return mockTxHash as TransactionSignature;
+      try {
+          const signature = await this.connection.sendRawTransaction(tx.serialize(), {
+              skipPreflight: true // Offline payload, skip standard preflight
+          });
+          // Wait for confirmation
+          await this.connection.confirmTransaction(signature, 'confirmed');
+          return signature;
+      } catch (err: any) {
+          console.error("Failed to submit raw transaction from DTN:", err);
+          throw err;
       }
-
-      // REAL MODE: Call the actual smart contract method
-      // const txHash = await this.program!.methods
-      //   .finalizeElection()
-      //   .accounts({
-      //     electionState: electionStateKey,
-      //     authority: this.wallet.publicKey,
-      //   })
-      //   .rpc();
-      //
-      // return txHash as TransactionSignature;
-
-      throw new Error("Real mode not configured - please set NEXT_PUBLIC_USE_MOCK_PROOFS=true");
-    } catch (error: any) {
-      console.error("❌ Failed to finalize election:", error);
-      throw new Error(`Election finalization failed: ${error.message}`);
-    }
   }
 
-  /**
-   * Get the number of used nullifiers (for verification purposes)
-   * 
-   * Parameters:
-   *   - electionStateKey: PublicKey of the election
-   * 
-   * Returns: Count of distinct nullifiers used (votes cast)
-   * 
-   * Example:
-   *   const usedCount = await client.getUsedNullifiersCount(electionKey);
-   *   console.log(`${usedCount} voters have cast votes`);
-   */
-  async getUsedNullifiersCount(electionStateKey?: PublicKey): Promise<number> {
-    try {
-      debugLog("CONTRACT", "Fetching used nullifiers count...");
-
-      if (this.isMockMode) {
-        // MOCK MODE: Return realistic count
-        debugLog("CONTRACT", "[MOCK] Simulating blockchain query (300ms delay)...");
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        const mockCount = 53; // 53 votes cast
-        debugLog("CONTRACT", `✅ [MOCK] Used nullifiers count: ${mockCount}`);
-        
-        return mockCount;
+  // Anchor Chain-Read Tally
+  async getVoteTally(): Promise<number[]> {
+    if (USE_MOCK) {
+      // Mock Fallback
+      if (typeof window !== 'undefined') {
+         const mockData = localStorage.getItem('submitted_votes');
+         if (mockData) {
+            const votes = JSON.parse(mockData);
+            const tally = [0, 0, 0, 0];
+            votes.forEach((v: any) => tally[v.candidateId]++);
+            return tally;
+         }
       }
-
-      // REAL MODE: Call the actual smart contract view function
-      // const count = await this.program!.methods
-      //   .getUsedNullifiersCount()
-      //   .accounts({
-      //     electionState: electionStateKey,
-      //   })
-      //   .view();
-      //
-      // return count as number;
-
-      throw new Error("Real mode not configured - please set NEXT_PUBLIC_USE_MOCK_PROOFS=true");
-    } catch (error: any) {
-      console.error("❌ Failed to get nullifiers count:", error);
-      throw new Error(`Failed to get nullifiers count: ${error.message}`);
+      return [0, 0, 0, 0];
     }
-  }
-
-  /**
-   * Helper: Convert buffer to number array
-   */
-  static bufferToArray(buffer: Buffer): number[] {
-    return Array.from(buffer);
-  }
-
-  /**
-   * Helper: Convert number array to buffer
-   */
-  static arrayToBuffer(array: number[]): Buffer {
-    return Buffer.from(array);
-  }
-
-  /**
-   * Helper: Get account info
-   */
-  async getAccountInfo(pubkey: PublicKey) {
+    
+    // Module 5 (Real Anchor Fetch)
     try {
-      const account = await this.connection.getAccountInfo(pubkey);
-      return account;
-    } catch (error) {
-      console.error("Failed to get account info:", error);
-      return null;
+        const [electionStatePda] = await this.getElectionStatePda();
+        // Anchor deserializes the struct directly off the blockchain
+        const state = await this.program.account.electionState.fetch(electionStatePda);
+        return state.voteCounts as number[];
+    } catch (e) {
+        console.error("No active election chain-state found.");
+        return [0,0,0,0];
     }
   }
 
-  /**
-   * Helper: Check if wallet is connected
-   */
-  isConnected(): boolean {
-    return this.wallet && this.wallet.publicKey;
-  }
+  // Anchor Finalize Method
+  async finalizeElection(): Promise<string> {
+    if (USE_MOCK) {
+      console.log('MOCK: finalizeElection');
+      return 'mock_finalize_signature';
+    }
 
-  /**
-   * Helper: Get current balance
-   */
-  async getBalance(): Promise<number> {
-    if (!this.wallet.publicKey) throw new Error("Wallet not connected");
-    return await this.connection.getBalance(this.wallet.publicKey);
-  }
-
-  /**
-   * ==========================================
-   * TESTING & DEBUG METHODS
-   * ==========================================
-   */
-
-  /**
-   * Check if running in mock mode
-   */
-  isMock(): boolean {
-    return this.isMockMode;
-  }
-
-  /**
-   * Get status of the contract client
-   */
-  getStatus(): {
-    isConnected: boolean;
-    isMockMode: boolean;
-    walletConnected: boolean;
-    mode: string;
-  } {
-    return {
-      isConnected: this.isConnected(),
-      isMockMode: this.isMockMode,
-      walletConnected: !!this.wallet && !!this.wallet.publicKey,
-      mode: this.isMockMode ? "MOCK (Testing)" : "REAL (Blockchain)",
-    };
-  }
-
-  /**
-   * Log mock mode status
-   */
-  logStatus(): void {
-    const status = this.getStatus();
-    console.group("🔷 Contract Client Status");
-    console.log(`Mode: ${status.mode}`);
-    console.log(`Mock Mode: ${status.isMockMode}`);
-    console.log(`Wallet Connected: ${status.walletConnected}`);
-    console.log(`Is Connected: ${status.isConnected}`);
-    console.groupEnd();
-  }
-
-  /**
-   * For testing: Reset mock state
-   */
-  resetMockState(): void {
-    if (this.isMockMode) {
-      debugLog("CONTRACT", "[TEST] Resetting mock state...");
-      // Could reset any internal mock state here
-      console.log("✅ Mock state reset");
+    try {
+        const [electionStatePda] = await this.getElectionStatePda();
+        const txHash = await this.program.methods.finalizeElection().accounts({
+            electionState: electionStatePda,
+            authority: this.provider?.wallet.publicKey,
+        }).rpc();
+        return txHash;
+    } catch (e) {
+        console.error("Failed to finalize election via M5 contract");
+        throw e;
     }
   }
 }
-
-export default RofvContractClient;

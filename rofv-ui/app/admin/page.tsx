@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, Trash2, Lock, Check, AlertCircle, X, Eye } from "lucide-react";
+import { TallyUI } from "./TallyUI";
+import { ArrowLeft, Plus, Trash2, Lock, Check, AlertCircle, X, Eye, Calendar, MapPin, Settings, LayoutDashboard, FileText, CheckCircle2, Users, Activity } from "lucide-react";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
 
 interface VoterRegistration {
   id: string;
@@ -55,10 +57,71 @@ export default function AdminPanel() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [selectedReg, setSelectedReg] = useState<VoterRegistration | null>(null);
-  const [activeTab, setActiveTab] = useState<"registrations" | "whitelist">("registrations");
+  const [activeTab, setActiveTab] = useState<"overview" | "registrations" | "whitelist" | "tally">("overview");
+  const [isFinalized, setIsFinalized] = useState(false);
+  const [elections, setElections] = useState<{id: string, name: string}[]>([]);
+  const [activeElectionId, setActiveElectionId] = useState<string>("e_default");
+  const [isElectionModalOpen, setIsElectionModalOpen] = useState(false);
+  const [newElectionName, setNewElectionName] = useState("");
   const CANDIDATES = ["Candidate A", "Candidate B", "Candidate C"];
 
+  const saveCurrentElectionData = (electionId: string) => {
+    const backup = {
+      whitelist: localStorage.getItem("whitelist") || "[]",
+      voter_registrations: localStorage.getItem("voter_registrations") || "[]",
+      pending_attendance: localStorage.getItem("pending_attendance") || "[]",
+      dtn_outbox: localStorage.getItem("dtn_outbox") || "[]",
+      submitted_votes: localStorage.getItem("submitted_votes") || "[]",
+      used_nullifiers: localStorage.getItem("used_nullifiers") || "[]",
+      merkleRoot: localStorage.getItem("merkleRoot") || "",
+      is_finalized: localStorage.getItem("is_finalized") || "false"
+    };
+    localStorage.setItem(`electionData_${electionId}`, JSON.stringify(backup));
+  };
+
+  const loadElectionData = (electionId: string) => {
+    const dataString = localStorage.getItem(`electionData_${electionId}`);
+    if (dataString) {
+      const backup = JSON.parse(dataString);
+      localStorage.setItem("whitelist", backup.whitelist);
+      localStorage.setItem("voter_registrations", backup.voter_registrations);
+      localStorage.setItem("pending_attendance", backup.pending_attendance);
+      localStorage.setItem("dtn_outbox", backup.dtn_outbox);
+      localStorage.setItem("submitted_votes", backup.submitted_votes);
+      localStorage.setItem("used_nullifiers", backup.used_nullifiers);
+      setIsFinalized(backup.is_finalized === "true");
+      if (backup.merkleRoot) {
+        localStorage.setItem("merkleRoot", backup.merkleRoot);
+      } else {
+        localStorage.removeItem("merkleRoot");
+      }
+    } else {
+      localStorage.setItem("whitelist", "[]");
+      localStorage.setItem("voter_registrations", "[]");
+      localStorage.setItem("pending_attendance", "[]");
+      localStorage.setItem("dtn_outbox", "[]");
+      localStorage.setItem("submitted_votes", "[]");
+      localStorage.setItem("used_nullifiers", "[]");
+      localStorage.removeItem("merkleRoot");
+      setIsFinalized(false);
+      localStorage.setItem("is_finalized", "false");
+    }
+  };
+
   useEffect(() => {
+    // 1. Initialize Elections Mock Data
+    const storedElections = JSON.parse(localStorage.getItem("elections") || '[{"id":"e_default","name":"General Assembly Election 2026"}]');
+    setElections(storedElections);
+
+    const currentId = localStorage.getItem("active_election_id") || "e_default";
+    setActiveElectionId(currentId);
+    
+    // We already have some demo data loaded on first boot if we never saved before, 
+    // so let's passively save it to e_default if there is no backup
+    if (!localStorage.getItem("electionData_e_default") && currentId === "e_default") {
+        saveCurrentElectionData("e_default");
+    }
+  
     // Load initial whitelist and registrations
     const stored = JSON.parse(localStorage.getItem("voter_registrations") || "[]");
     setRegistrations(stored);
@@ -98,6 +161,42 @@ export default function AdminPanel() {
     });
     
     setWhitelist(migrated);
+  };
+
+  const handleSwitchElection = (id: string) => {
+    saveCurrentElectionData(activeElectionId); // save current
+    setActiveElectionId(id);
+    localStorage.setItem("active_election_id", id);
+    
+    loadElectionData(id); // restore or wipe target
+    
+    // update local state
+    setRegistrations(JSON.parse(localStorage.getItem("voter_registrations") || "[]"));
+    setMerkleRoot(localStorage.getItem("merkleRoot"));
+    loadWhitelist();
+    setSuccess("Switched election context!");
+  };
+
+  const handleCreateElection = () => {
+    if(!newElectionName.trim()) return;
+    const newId = `e_${Date.now()}`;
+    const newEl = { id: newId, name: newElectionName };
+    const updated = [...elections, newEl];
+    setElections(updated);
+    localStorage.setItem("elections", JSON.stringify(updated));
+    
+    saveCurrentElectionData(activeElectionId);
+    
+    setActiveElectionId(newId);
+    localStorage.setItem("active_election_id", newId);
+    loadElectionData(newId); 
+    setRegistrations([]);
+    setWhitelist([]);
+    setMerkleRoot(null);
+    
+    setSuccess(`New Election "${newElectionName}" created and active.`);
+    setIsElectionModalOpen(false);
+    setNewElectionName("");
   };
 
   const getTurnoutStats = () => {
@@ -251,13 +350,25 @@ export default function AdminPanel() {
         {/* Tabs */}
         <div className="flex gap-4 mb-8 border-b border-gray-200">
           <button
+            onClick={() => setActiveTab("overview")}
+            className={`px-6 py-3 font-semibold border-b-2 transition-colors flex items-center gap-2 ${
+              activeTab === "overview"
+                ? "border-indigo-600 text-indigo-600"
+                : "border-transparent text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            <LayoutDashboard className="w-5 h-5" />
+            Dashboard Overview
+          </button>
+          <button
             onClick={() => setActiveTab("registrations")}
-            className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
+            className={`px-6 py-3 font-semibold border-b-2 transition-colors flex items-center gap-2 ${
               activeTab === "registrations"
                 ? "border-orange-600 text-orange-600"
                 : "border-transparent text-gray-600 hover:text-gray-900"
             }`}
           >
+            <FileText className="w-5 h-5" />
             Voter Registration Requests
             {pendingCount > 0 && (
               <span className="ml-2 bg-orange-600 text-white text-xs px-2 py-1 rounded-full">
@@ -267,15 +378,181 @@ export default function AdminPanel() {
           </button>
           <button
             onClick={() => setActiveTab("whitelist")}
-            className={`px-6 py-3 font-semibold border-b-2 transition-colors ${
+            className={`px-6 py-3 font-semibold border-b-2 transition-colors flex items-center gap-2 ${
               activeTab === "whitelist"
                 ? "border-blue-600 text-blue-600"
                 : "border-transparent text-gray-600 hover:text-gray-900"
             }`}
           >
+            <Users className="w-5 h-5" />
             Manage Whitelist
           </button>
         </div>
+
+        {/* Dashboard Overview Tab */}
+        {activeTab === "overview" && (
+          <div className="space-y-8">
+            <div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Current Election Dashboard</h2>
+                <p className="text-sm text-gray-500">Monitor active voting phase and configure system parameters.</p>
+              </div>
+              <select 
+                value={activeElectionId}
+                onChange={(e) => handleSwitchElection(e.target.value)}
+                className="bg-gray-50 border border-gray-200 text-gray-900 rounded-lg px-3 py-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 outline-none"
+              >
+                {elections.map((el) => (
+                  <option key={el.id} value={el.id}>{el.name}</option>
+                ))}
+              </select>
+              <button 
+                onClick={() => setIsElectionModalOpen(true)}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center gap-2 transition-colors"
+               >
+                <Plus className="w-4 h-4" /> Create Custom Election
+              </button>
+            </div>
+
+            {/* Top Stat Row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-gray-500 font-medium text-sm">Election Status</h3>
+                  <Activity className="w-5 h-5 text-indigo-500" />
+                </div>
+                <p className="text-2xl font-bold text-gray-900 mb-1">Active</p>
+                <div className="flex items-center text-xs font-semibold text-green-600 bg-green-50 w-max px-2 py-1 rounded-md">
+                  <span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>
+                  Live Polling
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-gray-500 font-medium text-sm">Registered Voters</h3>
+                  <Users className="w-5 h-5 text-blue-500" />
+                </div>
+                <p className="text-2xl font-bold text-gray-900 mb-1">{stats.total}</p>
+                <p className="text-xs text-gray-500">+ {approvedCount} new approvals today</p>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-gray-500 font-medium text-sm">Turnout Progress</h3>
+                  <CheckCircle2 className="w-5 h-5 text-green-500" />
+                </div>
+                <p className="text-2xl font-bold text-gray-900 mb-1">{stats.percentage}%</p>
+                <div className="w-full bg-gray-100 rounded-full h-1.5 mt-2">
+                  <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${stats.percentage}%` }}></div>
+                </div>
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-gray-500 font-medium text-sm">Security Layer</h3>
+                  <Lock className="w-5 h-5 text-purple-500" />
+                </div>
+                <p className="text-xl font-bold text-gray-900 mb-1 leading-tight">
+                  {merkleRoot ? "Merkle Root Locked" : "Setup Incomplete"}
+                </p>
+                <p className="text-xs text-gray-500 truncate mt-1">
+                  {merkleRoot ? merkleRoot : "Awaiting election freeze"}
+                </p>
+              </div>
+            </div>
+
+            {/* Main Dashboard Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Election Configuration / Setup Profile */}
+              <div className="lg:col-span-1 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-gray-400" /> Election Config
+                  </h2>
+                  <button className="text-sm font-medium text-indigo-600 hover:text-indigo-800">Edit</button>
+                </div>
+                <div className="space-y-5">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Title</p>
+                    <p className="text-gray-800 font-medium">{elections.find(e => e.id === activeElectionId)?.name || 'Unknown Election'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Jurisdiction / Constituency</p>
+                    <p className="text-gray-800 font-medium flex items-center gap-1">
+                      <MapPin className="w-4 h-4 text-gray-400" /> New Delhi (ND-01)
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Timeline</p>
+                    <div className="text-sm text-gray-800 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="flex items-center gap-1"><Calendar className="w-4 h-4 text-green-500" /> Start</span>
+                        <span className="font-semibold text-gray-600">Apr 15, 2026 - 08:00 AM</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1"><Calendar className="w-4 h-4 text-red-500" /> End</span>
+                        <span className="font-semibold text-gray-600">Apr 20, 2026 - 06:00 PM</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="pt-4 border-t border-gray-100">
+                    <p className="text-xs font-semibold text-gray-400 uppercase mb-2">Deployed Contract</p>
+                    <div className="bg-indigo-50 border border-indigo-100 text-indigo-800 text-xs font-mono p-2 rounded break-all">
+                      G6LXK55Rh6kwy5nfDHMwBZhAgvP7jmpVg9Mt1a2VRSWh
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live Attendance / Turnout Tracker */}
+              <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+                 <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                    <Users className="w-5 h-5 text-gray-400" /> Pre-Election Attendance Heatmap
+                  </h2>
+                </div>
+                <div className="h-[280px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart
+                      data={[
+                        { time: '08:00', votes: 0 },
+                        { time: '10:00', votes: Math.floor(stats.voted * 0.2) },
+                        { time: '12:00', votes: Math.floor(stats.voted * 0.45) },
+                        { time: '14:00', votes: Math.floor(stats.voted * 0.7) },
+                        { time: '16:00', votes: Math.floor(stats.voted * 0.85) },
+                        { time: 'Now', votes: stats.voted },
+                      ]}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                    >
+                      <defs>
+                        <linearGradient id="colorVotes" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} opacity={0.3} />
+                      <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
+                      <RechartsTooltip 
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Area type="monotone" dataKey="votes" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorVotes)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="mt-4 flex items-center justify-center gap-6 border-t border-gray-100 pt-4">
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-gray-800">{stats.voted}</p>
+                    <p className="text-xs text-gray-500 uppercase font-semibold">Marked Present</p>
+                  </div>
+                  <div className="w-px h-10 bg-gray-200"></div>
+                  <div className="text-center">
+                    <p className="text-2xl font-bold text-gray-800">{stats.total - stats.voted}</p>
+                    <p className="text-xs text-gray-500 uppercase font-semibold">Remaining Expected</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Voter Registration Tab */}
         {activeTab === "registrations" && (
@@ -433,6 +710,9 @@ export default function AdminPanel() {
             </div>
           </div>
         )}
+
+        {/* Tally Tab */}
+        {activeTab === "tally" && <TallyUI />}
 
         {/* Whitelist Tab */}
         {activeTab === "whitelist" && (
@@ -713,6 +993,49 @@ export default function AdminPanel() {
           </div>
         )}
       </div>
+      {/* Create Election Modal */}
+      {isElectionModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden border border-gray-100">
+            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+              <h3 className="text-lg font-bold text-gray-900">Create New Election</h3>
+              <button onClick={() => setIsElectionModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Election Name</label>
+                <input
+                  type="text"
+                  value={newElectionName}
+                  onChange={(e) => setNewElectionName(e.target.value)}
+                  placeholder="e.g., University Council 2027"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow outline-none"
+                />
+              </div>
+              <div className="bg-blue-50 border border-blue-100 rounded-lg p-3 text-sm text-blue-700">
+                <p>Creating a new election will provide a completely fresh slate. Existing data is isolated and safely preserved automatically under the old election context.</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+              <button
+                onClick={() => setIsElectionModalOpen(false)}
+                className="px-4 py-2 text-gray-600 font-medium hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateElection}
+                disabled={!newElectionName.trim()}
+                className="px-4 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              >
+                Create Election
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
+use std::collections::HashSet;
 
-declare_id!("CQxrBkpmxr8QBMiQ7Y7EGHvDRSEQDP5D9RZmZyZEuiC9");
+declare_id!("G6LXK55Rh6kwy5nfDHMwBZhAgvP7jmpVg9Mt1a2VRSWh");
 
 #[program]
 pub mod rofv_contract {
@@ -62,10 +63,9 @@ pub mod rofv_contract {
         );
 
         // 3. Check nullifier hasn't been used (prevent double voting)
-        let mut nullifier_arr = [0u8; 32];
-        nullifier_arr.copy_from_slice(&nullifier_hash[..32]);
+        let nullifier_key = NullifierKey::from(&nullifier_hash);
         require!(
-            !election_state.used_nullifiers.contains(&nullifier_arr),
+            !election_state.used_nullifiers.contains(&nullifier_key),
             RofvError::NullifierAlreadyUsed
         );
 
@@ -89,7 +89,7 @@ pub mod rofv_contract {
         vote_record.voter_pubkey = ctx.accounts.signer.key();
 
         // Mark nullifier as used
-        election_state.used_nullifiers.push(nullifier_arr);
+        election_state.used_nullifiers.insert(nullifier_key);
         
         // Increment vote count for candidate
         election_state.vote_counts[candidate_id as usize] += 1;
@@ -187,7 +187,7 @@ pub struct ElectionState {
     pub finalized_at: Option<i64>,
     pub vote_counts: Vec<u32>,
     pub total_votes_cast: u32,
-    pub used_nullifiers: Vec<[u8; 32]>,
+    pub used_nullifiers: HashSet<NullifierKey>,
 }
 
 #[account]
