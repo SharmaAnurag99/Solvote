@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Wifi, WifiOff, Copy, Check, Database } from "lucide-react";
 import ProcessFlow from "@/components/ProcessFlow";
 import { Keypair, Transaction, SystemProgram } from "@solana/web3.js";
-import { popDurableNonce, getAvailableNonceCount, createRealNoncesOnDevnet } from "@/lib/nonceManager";
+import { popDurableNonce, getAvailableNonceCount, createRealNoncesOnDevnet, createLocalDemoNonces } from "@/lib/nonceManager";
 import { 
   generateVoterProof, 
   generateMockProof, 
@@ -66,7 +66,10 @@ export default function VotingScreen() {
   const [nonceLoadingMsg, setNonceLoadingMsg] = useState("");
 
   useEffect(() => {
-    // Check nonces on load
+    // Seed one local demo nonce so the booth flow can run without Devnet/WiFi.
+    if (getAvailableNonceCount() === 0) {
+      createLocalDemoNonces(1);
+    }
     setNoncesOffline(getAvailableNonceCount());
     
     const handleOnline = () => setIsOffline(false);
@@ -100,9 +103,9 @@ export default function VotingScreen() {
   const handleCastVote = async () => {
     if (selectedCandidate === null) return;
 
-    if (noncesOffline === 0) {
-      alert("❌ NO OFFLINE NONCES AVAILABLE. Booth must connect to WiFi to boot up election payload cache.");
-      return;
+    if (getAvailableNonceCount() === 0) {
+      createLocalDemoNonces(1);
+      setNoncesOffline(getAvailableNonceCount());
     }
 
     setLoading(true);
